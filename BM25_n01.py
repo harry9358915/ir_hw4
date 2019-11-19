@@ -4,21 +4,20 @@ import collections
 import fuc
 
 @numba.njit(fastmath=True,nogil=True)
-def bm25_step(K1,K3,b,term_doc_matrix,term_query_matrix,IDF_matrix,doc_len):
+def bm25_step(K1,K3,b,term_doc_matrix,term_query_matrix,IDF_matrix,doc_len,querys_repeat_word):
     N=term_doc_matrix.shape[0]
-    V=term_query_matrix.shape[0]
     doc_avglen=np.sum(doc_len)*1.0/N
     sim=np.zeros(N,dtype=np.float64)
 
     for n in range(N):
-        for i in range(V):
+        for i in querys_repeat_word:
             dtf_temp=term_doc_matrix[n][i]
             qtf_temp=term_query_matrix[i]
             IDF_temp=IDF_matrix[i]
             if(dtf_temp!=0 and qtf_temp!=0):
                 doc_weight=((K1+1)*dtf_temp)/(K1*((1-b)+b*(doc_len[n]/doc_avglen))+dtf_temp)
                 query_weight=((K3+1)*qtf_temp)/(K3+qtf_temp)
-                IDF=np.log((N-IDF_temp+0.5)/(IDF_temp+0.5))
+                IDF=np.log(1+(N-IDF_temp+0.5)/(IDF_temp+0.5))
                 sim[n]=sim[n]+(doc_weight*query_weight*IDF)
     sim=sim.argsort()
     sim=sim[::-1]
@@ -75,9 +74,15 @@ class BM25():
         term_doc_matrix=np.zeros((N,len(doc_w_index_dict)),dtype=np.int16)
         IDF_matrix=np.zeros(len(doc_w_index_dict),dtype=np.int16)
         term_query_matrix=np.zeros((Q,len(doc_w_index_dict)),dtype=np.int16)
-
+        querys_repeat_word=[]
         for n in range(len(querys_word)):
             query_norepeat_word=list({}.fromkeys(querys_word[n]).keys())
+            t=[]
+            for w in querys_word[n]:
+                w_index = doc_w_index_dict.get(w,None)
+                if(w_index!=None):
+                    t.append(w_index)
+            querys_repeat_word.append(t)
             for w in query_norepeat_word:
                 w_index = doc_w_index_dict.get(w,None)
                 if(w_index==None):
@@ -85,7 +90,7 @@ class BM25():
                 else:
                     count = query_dict[n].get(w,0)
                     term_query_matrix[n][w_index]=count
-        del query_dict
+        del query_dict,querys_word
 
         for n in range(len(docs_word)):
             doc_norepeat_word=list({}.fromkeys(docs_word[n]).keys())
@@ -99,10 +104,10 @@ class BM25():
                 IDF_matrix[w_index]=count
         del doc_dict,IDF_dict
         
-        return query_list,doc_list,term_doc_matrix,term_query_matrix,IDF_matrix,doc_len
+        return query_list,doc_list,term_doc_matrix,term_query_matrix,IDF_matrix,doc_len,querys_repeat_word
 
     def fit(self,K1,K3,b,top=None):
-        query_list,doc_list,term_doc_matrix,term_query_matrix,IDF_matrix,doc_len=self.getdata("Query/")
+        query_list,doc_list,term_doc_matrix,term_query_matrix,IDF_matrix,doc_len,querys_repeat_word=self.getdata("Query/")
         if top==None:
             top=len(doc_list)
         fp = open("submission.txt", "w")
@@ -117,7 +122,8 @@ class BM25():
                 term_doc_matrix,
                 term_query_matrix[q],
                 IDF_matrix,
-                doc_len
+                doc_len,
+                np.array(querys_repeat_word[q])
                 )
             fp.write("\n"+query_list[q]+",")
             for n in range(top):
@@ -125,7 +131,7 @@ class BM25():
         fp.close()
 
     def prefit(self,K1,K3,b,top=None):
-        query_list,doc_list,term_doc_matrix,term_query_matrix,IDF_matrix,doc_len=self.getdata("Query/")
+        query_list,doc_list,term_doc_matrix,term_query_matrix,IDF_matrix,doc_len,querys_repeat_word=self.getdata("Query/")
         if top==None:
             top=len(doc_list)
         fp = open("prefit.txt", "w")
@@ -139,7 +145,8 @@ class BM25():
                 term_doc_matrix,
                 term_query_matrix[q],
                 IDF_matrix,
-                doc_len
+                doc_len,
+                np.array(querys_repeat_word[q])
                 )
             for n in range(top):
                 fp.write(str(sim[n])+" ")
@@ -150,7 +157,7 @@ class BM25():
 
 if __name__ == "__main__":
     K3=5
-    K1=1.5
+    K1=1.6
     b=0.788
     sim_list=[]
-    sim_list=BM25("query_list.txt","doc_list.txt").prefit(K1,K3,b,50)
+    sim_list=BM25("query_list.txt","doc_list.txt").fit(K1,K3,b)
