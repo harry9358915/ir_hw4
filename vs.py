@@ -15,7 +15,7 @@ def vector(X_rows,X_cols,X_vals,IDF_matrix,temp_vector):
         w=X_cols[i]
         x=X_vals[i]
         if(IDF_matrix[w]!=0):
-            temp_vector[d][w]=x*np.log(N*1.0/IDF_matrix[w])
+            temp_vector[d][w]=(1+x)*np.log(N*1.0/IDF_matrix[w])
     return temp_vector
 '''
 @numba.njit(fastmath=True,nogil=True)
@@ -42,19 +42,22 @@ def similarity(doc_vector,X_rows,X_cols,X_vals,Q):
     return sim 
 '''
 @numba.njit(fastmath=True,nogil=True)
-def similarity(doc_vector,query_vector):
+def similarity(doc_vector,query_vector,normb):
     Q=query_vector.shape[0]
-    D=doc_vector.shape[0]
-    V=query_vector.shape[0]
     cos=np.zeros((Q,N),dtype=np.float64)
-    normb = np.zeros(N,dtype=np.float64)
-    for d in range(D):
-        normb[d] = np.linalg.norm(doc_vector[d])
+
     for q in range(Q): 
         dot = np.dot(doc_vector, query_vector[q])
         norma = np.linalg.norm(query_vector[q])
         cos[q] = dot / (norma * normb)
     return cos
+@numba.njit(nogil=True)
+def normalize_IDF(IDF_vec,N,p,q):
+    for k in range(len(IDF_vec)):
+        temp=IDF_vec[k]*1.0/N
+        if( temp>=p or temp<=q):
+            IDF_vec[k]=0
+    return IDF_vec
 
 class VectorSpace():
     def __init__(self,querylist_path,doclist_path):
@@ -118,19 +121,20 @@ class VectorSpace():
                     term_query_matrix[n][w_index]=count
                     count = Q_IDF_dict.get(w,0)
                     Q_IDF_matrix[w_index]=count
+        Q_IDF_matrix=normalize_IDF(Q_IDF_matrix,Q,0.95,0.005)
         del query_dict
 
         for n in range(len(docs_word)):
             doc_norepeat_word=list({}.fromkeys(docs_word[n]).keys())
             for w in doc_norepeat_word:
                 w_index = doc_w_index_dict.get(w,None)
-               
                 if(w_index==None):
                     print("doc index=0 error"+w+" w_index:"+str(n))
                 count = doc_dict[n].get(w,0)
                 term_doc_matrix[n][w_index]=count
                 count = D_IDF_dict.get(w,0)
                 D_IDF_matrix[w_index]=count
+        D_IDF_matrix=normalize_IDF(D_IDF_matrix,N,0.95,0.005)
         del doc_dict,D_IDF_dict
         
         return query_list,doc_list,term_doc_matrix,term_query_matrix,D_IDF_matrix,Q_IDF_matrix
@@ -159,18 +163,17 @@ if __name__ == '__main__':
     doc_vector,query_vector,query_list,doc_list=VectorSpace("query_list.txt","doc_list.txt").fit()
     Q=query_vector.shape[0]
     V=query_vector.shape[1]
+    
     N=len(doc_list)
     top=5
     iters=10
 
-
-    X = check_array(query_vector, accept_sparse="csr")
-    if not issparse(X):
-        X = csr_matrix(X)
-    X = X.tocoo() 
+    normb = np.zeros(N,dtype=np.float64)
+    for d in range(N):
+        normb[d] = np.linalg.norm(doc_vector[d])
     #sim=cosine_similarity(query_vector,doc_vector)
     sum_qw=0.0
-    sim=similarity(doc_vector,query_vector)
+    sim=similarity(doc_vector,query_vector,normb)
     #sim=similarity(doc_vector,X.row,X.col,X.data,Q)
     sim=np.argsort(sim,axis=1)
     sim=sim[:,::-1] 
@@ -179,13 +182,14 @@ if __name__ == '__main__':
     for _ in range(iters):
         retrieval_vecs=doc_vector[sim[:,:top]].mean(axis=1)
         query_vector = 1 * query_vector + 0.8 * retrieval_vecs
-        sim=similarity(doc_vector,query_vector)
+        sim=similarity(doc_vector,query_vector,normb)
         sim=np.argsort(sim,axis=1)
         sim=sim[:,::-1] 
 
     with open('submission.txt', mode='w') as file:
         file.write('Query,RetrievedDocuments\n')
         for query_name, ranking in zip(query_list, sim):
+            ranking=ranking[:50]
             ranked_docs = ' '.join([doc_list[idx] for idx in ranking])
             file.write('%s,%s\n' % (query_name, ranked_docs))  
 
