@@ -8,7 +8,7 @@ import fuc
 import math
 
 @numba.njit(fastmath=True,nogil=True)#nogil:當進入這類編譯好的函數時，Numba將會釋放全局線程鎖，fastmath:減少運算時間
-def SMM_e_step(a,p_smm,p_smm_w,p_w_BG,probability_threshold=1e-32):
+def SMM_e_step(a,X_rows,X_cols,X_vals,p_smm,p_smm_w,p_w_BG,probability_threshold=1e-32):
 
     '''
     X:dtf matrix NxV N:top doc數量 V:top doc內的word
@@ -17,16 +17,17 @@ def SMM_e_step(a,p_smm,p_smm_w,p_w_BG,probability_threshold=1e-32):
     p_w_BG:BG model，array index為word_id。
     probability_threshold:閥值10^-32次方
     '''
-    norm=0.0
+    #norm=0.0
     for w in range(p_smm.shape[0]):        
         fraction=(1-a)*p_smm[w]
         denominator=(1-a)*p_smm[w]+a*p_w_BG[w]
         p_smm_w[w]=fraction/denominator
+    '''
         norm+=p_smm_w[w]
     for i in range(len(p_smm_w)):
         if norm>0:
             p_smm_w[i]/=norm
-    
+    '''
     return p_smm_w
 
 @numba.njit(fastmath=True,nogil=True)
@@ -41,6 +42,7 @@ def SMM_m_step(X_rows,X_cols,X_vals,p_smm,p_smm_w):
 
         p_smm[w]+=sum_temp
         norm_psmm+=sum_temp
+
     for i in range(len(p_smm)):
         if norm_psmm>0:
             p_smm[i]/=norm_psmm
@@ -67,6 +69,9 @@ def SMM_fit(X,a,n_iter,p_w_BG):
     X = X.tocoo()
     for _ in range(n_iter):
         p_smm_w=SMM_e_step(a,
+                        X.row,
+                        X.col,
+                        X.data,
                         p_smm,
                         p_smm_w,
                         p_w_BG)
@@ -76,9 +81,9 @@ def SMM_fit(X,a,n_iter,p_w_BG):
                         p_smm,
                         p_smm_w)
         #print(log_likelihood(a,X.row,X.col,X.data,p_smm,p_w_BG))
-    p_smm_w=p_smm_w.argsort()
-    p_smm_w=p_smm_w[::-1]
-    return p_smm_w
+    p_smm=p_smm.argsort()
+    p_smm=p_smm[::-1]
+    return p_smm
 
 
 
@@ -144,6 +149,7 @@ if __name__ == '__main__':
         N=len(docs_word)
         V=len(doc_w_index_dict)
         term_doc_matrix=np.zeros((N,V),dtype=np.float64)
+        p_w_BG1=np.zeros(V,dtype=np.float64)
         for n in range(len(docs_word)):
             doc_norepeat_word=list({}.fromkeys(docs_word[n]).keys())
             for w in doc_norepeat_word:
@@ -152,9 +158,10 @@ if __name__ == '__main__':
                     print("index=0 error"+w+" w_index:"+str(n))
                 count = doc_dict[top_list[t][n]].get(w,0)
                 term_doc_matrix[n][w_index]=count
+                p_w_BG1[w_index]=p_w_BG[int(w)]
         
-        p_smm=SMM().fit(term_doc_matrix,0.4,p_w_BG)
-        p_smm=p_smm[:30]
+        p_smm=SMM().fit(term_doc_matrix,0.5,p_w_BG1)
+        p_smm=p_smm[:40]
         p_smm.tolist()
         doc_w_index_dict = {v: k for k, v in doc_w_index_dict.iteritems()}
         for item in p_smm:
