@@ -40,11 +40,11 @@ rankings = np.flip(cos_sim.argsort(), axis=1)
 
 for _ in range(iters):
     rel_vecs  = doc_tfidfs[rankings[:,:top]].mean(axis=1)
-    query_vecs = 1 * query_vecs + 0. * rel_vecs
+    query_vecs = 1 * query_vecs + 0.8 * rel_vecs
     cos_sim = cosine_similarity(query_vecs, doc_tfidfs)
-    rankings = np.flip(cos_sim.argsort(), axis=1)
+    rankings = np.flip(cos_sim.argsort(axis=1), axis=1)
 
-
+'''
 with open('prefit.txt', mode='w') as file:
     for query_name, ranking in zip(query_list, rankings):
         ranking=ranking[:50]
@@ -57,4 +57,3 @@ with open('submission.txt', mode='w') as file:
         ranking=ranking[:50]
         ranked_docs = ' '.join([doc_list[idx] for idx in ranking])
         file.write('%s,%s\n' % (query_name, ranked_docs))
-'''
